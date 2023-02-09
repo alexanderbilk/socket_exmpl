@@ -153,13 +153,6 @@ proccesing(int sockfd)
  main(int argc, char *argv[])
  {
         struct addrinfo hints = {0};
-        struct addrinfo *res, *p;
-
-        struct sockaddr_in *ipv4;
-        struct sockaddr_in6 *ipv6;
-        struct sockaddr_storage their_addr;
-        socklen_t addr_size;
-        void *addr;
         int sockfd;
         int rc;
 
@@ -171,8 +164,9 @@ proccesing(int sockfd)
         if (rc)
                 return rc;
 
-        proccesing(sockfd);
-
+        rc = proccesing(sockfd);
+        if (rc)
+                return rc;
 
         return 0;
  }
