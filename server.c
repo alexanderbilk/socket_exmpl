@@ -7,9 +7,12 @@
 #include <netinet/in.h>
 #include <sys/select.h>
 #include <errno.h>
+#include <unistd.h>
 
 #define DEFAULT_PORT "5555"
 #define BACKLOG 10
+
+static char buf[256]; 
 
 static int
 setup_socket(struct addrinfo *hints, char *port, int *socketfd)
@@ -47,6 +50,8 @@ setup_socket(struct addrinfo *hints, char *port, int *socketfd)
                 return errno;
         }
 
+        printf("Listening on port %s\n", port);
+
         return 0;
 }
 
@@ -77,6 +82,34 @@ accept_new_connection(int sockfd, fd_set *master, int *fdmax)
         return 0;
 }
 
+static inline void
+close_connection(int fd, fd_set *master)
+{
+        FD_CLR(fd, master);
+        close(fd);
+}
+
+static int
+recieve_data(int fd, fd_set *master)
+{
+        int bytes;
+        bytes = recv(fd, buf, sizeof buf, 0);
+
+        if (bytes == 0) {
+                close_connection(fd, master);
+                return -1;
+        }
+
+        if (bytes < 0) {
+                close_connection(fd, master);
+                return bytes;
+        }
+
+        printf("Message: %s has been recieved from connection %d", buf, fd);
+
+        return 0;
+}
+
 static int
 proccesing(int sockfd)
 {
@@ -85,8 +118,7 @@ proccesing(int sockfd)
         int fdmax;
         int new_fd;
         int rc;
-        int i;
-        
+        int i;     
 
         FD_ZERO(&master);
         FD_ZERO(&active);
@@ -108,13 +140,13 @@ proccesing(int sockfd)
                                         if (rc)
                                                 perror("accept new connection");
                                 } else {
-                                        
+                                        rc = recieve_data(i, &master);
+                                        if (rc)
+                                                perror("recieve data");
                                 }
                         }
                 }
         }
-
-
 }
 
  int
