@@ -76,8 +76,8 @@ accept_new_connection(int sockfd, fd_set *master, int *fdmax)
         printf("Accepted new connection from %s Created new fd %d \n", addr_str, new_fd);
 
         FD_SET(new_fd, master);
-        if (new_fd > *fdmax)
-                *fdmax = new_fd;
+        if (new_fd >= *fdmax)
+                *fdmax = new_fd + 1;
 
         return 0;
 }
@@ -85,6 +85,7 @@ accept_new_connection(int sockfd, fd_set *master, int *fdmax)
 static inline void
 close_connection(int fd, fd_set *master)
 {
+        printf("Closing connection on fd %d", fd);
         FD_CLR(fd, master);
         close(fd);
 }
@@ -95,17 +96,15 @@ recieve_data(int fd, fd_set *master)
         int bytes;
         bytes = recv(fd, buf, sizeof buf, 0);
 
-        if (bytes == 0) {
-                close_connection(fd, master);
-                return -1;
-        }
+        if (bytes == 0)
+                return 0;
 
         if (bytes < 0) {
                 close_connection(fd, master);
                 return bytes;
         }
 
-        printf("Message: %s has been recieved from connection %d", buf, fd);
+        printf("Message: %s has been recieved from connection %d\n", buf, fd);
 
         return 0;
 }

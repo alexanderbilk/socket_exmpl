@@ -6,7 +6,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <errno.h>
-
+#include <unistd.h>
 
 static int
 connect_to_server(struct addrinfo *hints, char *port, int *sockfd)
@@ -62,8 +62,10 @@ send_message(int sockfd, char *msg)
         if (rc)
                 return rc;
 
-        send_message(sockfd, "Hello there");
-        send_message(sockfd, "Knock knock");
+        
+        sleep(5);
+        send_message(sockfd, "Hello there\n");
+        send_message(sockfd, "Knock knock\n");
 
         return 0;
  }
