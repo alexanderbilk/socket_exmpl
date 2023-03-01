@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -9,10 +10,14 @@
 #include <errno.h>
 #include <unistd.h>
 
+#include "infiniband_init.h"
+
 #define DEFAULT_PORT "5555"
 #define BACKLOG 10
+#define BUF_SIZE 256
 
-static char buf[256]; 
+static void *buf;
+struct qp_data_s qp_data = {0};
 
 static int
 setup_socket(struct addrinfo *hints, char *port, int *socketfd)
@@ -91,20 +96,35 @@ close_connection(int fd, fd_set *master)
 }
 
 static int
-recieve_data(int fd, fd_set *master)
+exchange_data(int fd, fd_set *master)
 {
-        int bytes;
-        bytes = recv(fd, buf, sizeof buf, 0);
+        int rc;
+        struct qp_data_s *result;
 
-        if (bytes == 0)
+        rc = recv(fd, buf, BUF_SIZE, 0);
+
+        if (rc == 0)
                 return 0;
 
-        if (bytes < 0) {
+        if (rc < 0) {
                 close_connection(fd, master);
-                return bytes;
+                return rc;
         }
 
-        printf("Message: %s has been recieved from connection %d\n", buf, fd);
+        result = (struct qp_data_s *) buf;
+        
+        printf("New data has been recieved from connection %d\n", fd);
+        printf("Client QP num is %d\n", result->qp_num);
+        printf("Client QP GUID is %llu\n", result->guid);
+
+        rc = ib_setup_qp(result);
+        if (rc)
+                return rc;
+        
+        printf("Sending data qp_data back to client\n");
+        rc = send(fd, &qp_data, sizeof(struct qp_data_s), 0);
+        if (rc < 0)
+                return rc;
 
         return 0;
 }
@@ -139,21 +159,26 @@ proccesing(int sockfd)
                                         if (rc)
                                                 perror("accept new connection");
                                 } else {
-                                        rc = recieve_data(i, &master);
+                                        rc = exchange_data(i, &master);
                                         if (rc)
                                                 perror("recieve data");
+
+                                        goto connection_done;
                                 }
                         }
                 }
         }
+
+connection_done:
+        return 0;
 }
 
  int
  main(int argc, char *argv[])
  {
-        struct addrinfo hints = {0};
         int sockfd;
         int rc;
+        struct addrinfo hints = {0};
 
         hints.ai_family = AF_INET; // AF_INET или AF_INET6 если требуется
         hints.ai_socktype = SOCK_STREAM;
@@ -163,9 +188,31 @@ proccesing(int sockfd)
         if (rc)
                 return rc;
 
+        printf("Initialisation of QP\n");
+        rc = ib_qp_init(0, &qp_data);
+        if (rc)
+                return rc;
+        
+        printf("QP num is %d\n", qp_data.qp_num);
+        printf("QP port_num is %d\n", qp_data.port_num);
+
+        buf = malloc(BUF_SIZE);
+
         rc = proccesing(sockfd);
         if (rc)
                 return rc;
+
+        printf("Data exchange completed\n");
+
+        rc = ib_post_recieve();
+        if (rc)
+                return rc;
+
+        rc = ib_poll_cq();
+        if (rc)
+                return rc;
+        
+        getchar();
 
         return 0;
  }

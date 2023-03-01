@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -7,6 +8,12 @@
 #include <netinet/in.h>
 #include <errno.h>
 #include <unistd.h>
+
+#include "infiniband_init.h"
+
+#define BUF_SIZE 256
+
+static void *buf;
 
 static int
 connect_to_server(struct addrinfo *hints, char *port, int *sockfd)
@@ -34,15 +41,31 @@ connect_to_server(struct addrinfo *hints, char *port, int *sockfd)
 }
 
 static int
-send_message(int sockfd, char *msg)
+exchange_data(int sockfd, struct qp_data_s *qp_data)
 {
         int rc;
+        struct qp_data_s *result;
 
-        rc = send(sockfd, msg, strlen(msg), 0);
-        if (rc) {
+        rc = send(sockfd, qp_data, sizeof(struct qp_data_s), 0);
+        if (rc < 0) {
                 perror("send msg");
                 return rc;
         }
+
+        sleep(1);
+
+        rc = recv(sockfd, buf, BUF_SIZE, 0);
+
+        if (rc <= 0)
+                return rc;
+
+        result = (struct qp_data_s *) buf;
+
+        printf("Recieved qp data from server\n");
+        printf("Server QP num is %d\n", result->qp_num);
+        printf("Server QP GUID is %llu\n", result->guid);
+
+        ib_setup_qp(result);
 
         return 0;
 }
@@ -51,6 +74,7 @@ send_message(int sockfd, char *msg)
  main(int argc, char *argv[])
  {
         struct addrinfo hints = {0};
+        struct qp_data_s qp_data = {0};
         int sockfd;
         int rc;
 
@@ -62,10 +86,30 @@ send_message(int sockfd, char *msg)
         if (rc)
                 return rc;
 
+        printf("Initialisation of QP\n");
+        rc = ib_qp_init(1, &qp_data);
+        if (rc)
+                return rc;
+
+        printf("QP num is %d\n", qp_data.qp_num);
+        printf("QP port_num is %d\n", qp_data.port_num);
+
+        buf = malloc(BUF_SIZE);
         
-        sleep(5);
-        send_message(sockfd, "Hello there\n");
-        send_message(sockfd, "Knock knock\n");
+        sleep(2);
+        exchange_data(sockfd, &qp_data);
+
+ //       getchar();
+   
+        rc = ib_post_send();
+        if (rc)
+                return rc;
+
+    /*    rc = ib_poll_cq();
+        if (rc)
+                return rc;*/
+
+        getchar();
 
         return 0;
  }
