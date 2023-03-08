@@ -95,21 +95,28 @@ exchange_data(int sockfd, struct qp_data_s *qp_data)
         printf("QP port_num is %d\n", qp_data.port_num);
 
         buf = malloc(BUF_SIZE);
-        
-        sleep(2);
+
         exchange_data(sockfd, &qp_data);
 
- //       getchar();
-   
-        rc = ib_post_send();
+        rc = ib_post_rdma_write("Hello from client side\n");
         if (rc)
                 return rc;
 
-    /*    rc = ib_poll_cq();
+        rc = ib_poll_cq();
         if (rc)
-                return rc;*/
+                return rc;
 
         getchar();
+
+        rc = ib_post_rdma_read();
+        if (rc)
+                return rc;
+
+        rc = ib_poll_cq();
+        if (rc)
+                return rc;
+
+        ib_print_buffer_and_flush();
 
         return 0;
  }

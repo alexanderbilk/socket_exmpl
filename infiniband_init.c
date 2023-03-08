@@ -10,6 +10,8 @@
 #define SUBNET_ID (5);
 
 static char *mem_buf;
+static uint32_t rkey;
+static uintptr_t raddr;
 static struct ibv_cq *cq;
 static struct ibv_qp *qp;
 static struct ibv_pd *pd;
@@ -115,19 +117,20 @@ create_qp(struct ibv_pd *pd, struct ibv_cq *cq, struct ibv_qp **qp)
 static int
 register_mr(struct ibv_pd *pd, struct ibv_mr **mr)
 {
+        int flags;
+
         mem_buf = calloc(1, BUF_SIZE);
         if (!mem_buf) {
                 printf("Failed to alloc buffer memmory of size %d", BUF_SIZE);
                 return -ENOMEM;
         }
 
-        *mr = ibv_reg_mr(pd, mem_buf, BUF_SIZE, IBV_ACCESS_LOCAL_WRITE);
+        flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
+        *mr = ibv_reg_mr(pd, mem_buf, BUF_SIZE, flags);
         if (!*mr) {
                 printf("Failed to register mr\n");
                 return -EINVAL;
-        }
-
-        
+        }        
 
         return 0;
 }
@@ -185,7 +188,7 @@ ib_qp_init(uint8_t dev_idx, struct qp_data_s *res)
         attr.qp_state = IBV_QPS_INIT;
         attr.port_num = PORT_ID;
         attr.pkey_index = 0;
-        attr.qp_access_flags = IBV_ACCESS_LOCAL_WRITE;
+        attr.qp_access_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
 
         attr_flags = IBV_QP_STATE | IBV_QP_PORT | IBV_QP_PKEY_INDEX | IBV_QP_ACCESS_FLAGS;
         rc = ibv_modify_qp(qp, &attr, attr_flags);
@@ -199,6 +202,8 @@ ib_qp_init(uint8_t dev_idx, struct qp_data_s *res)
         res->guid = ibv_get_device_guid(dev);
         res->gid = gid;
         res->qp = qp;
+        res->rkey = mr->rkey;
+        res->raddr = (uintptr_t) mr->addr;
 
         ibv_free_device_list(device_arr);
 
@@ -212,6 +217,9 @@ ib_setup_qp(struct qp_data_s *remote_qp)
         int attr_flags = 0;
         struct ibv_qp_attr attr = {0};
 
+        rkey = remote_qp->rkey;
+        raddr = remote_qp->raddr;
+
         attr.ah_attr.is_global = 1;
         attr.ah_attr.grh.dgid = remote_qp->gid;
         attr.ah_attr.sl = 0;
@@ -221,7 +229,7 @@ ib_setup_qp(struct qp_data_s *remote_qp)
         attr.path_mtu = IBV_MTU_1024;
         attr.dest_qp_num = remote_qp->qp_num;
         attr.rq_psn = 0;
-        attr.max_dest_rd_atomic = 0;
+        attr.max_dest_rd_atomic = 1;
         attr.min_rnr_timer = 0x12;
 
         attr_flags = IBV_QP_STATE | IBV_QP_AV | IBV_QP_DEST_QPN | IBV_QP_PATH_MTU | IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER;
@@ -278,13 +286,12 @@ ib_post_recieve()
 }
 
 int
-ib_post_send()
+ib_post_send(char *msg)
 {
         int rc;
         struct ibv_send_wr wr = {0};
         struct ibv_send_wr *bad_wr = calloc(1, sizeof(struct ibv_send_wr));
         struct ibv_sge *sge = calloc(1, sizeof(struct ibv_sge));
-        char *msg = "Hello, from client\n";
 
         sge->addr = (uintptr_t)mem_buf;
         sge->length = BUF_SIZE;
@@ -310,6 +317,41 @@ ib_post_send()
 }
 
 int
+ib_post_rdma_write(char *msg)
+{
+        int rc;
+        struct ibv_send_wr wr = {0};
+        struct ibv_send_wr *bad_wr = calloc(1, sizeof(struct ibv_send_wr));
+        struct ibv_sge *sge = calloc(1, sizeof(struct ibv_sge));
+
+        sge->addr = (uintptr_t)mem_buf;
+        sge->length = BUF_SIZE;
+        sge->lkey = mr->lkey;
+
+        wr.next = NULL;
+        wr.wr_id = 0;
+        wr.sg_list = sge;
+        wr.num_sge = 1;
+        wr.opcode = IBV_WR_RDMA_WRITE;
+        wr.send_flags = IBV_SEND_SIGNALED;
+        wr.wr.rdma.rkey = rkey;
+        wr.wr.rdma.remote_addr = raddr;
+
+        printf("RDMA WRTIE local address %p, remote address %p\n", mem_buf, raddr);
+
+        memcpy(mem_buf, msg, strlen(msg));
+        rc = ibv_post_send(qp, &wr, &bad_wr);
+        if (rc) {
+                printf("Failed to post RDMA WRITE Request");
+                return rc;
+        }
+
+        printf ("RDMA WRITE request posted\n");
+
+        return 0;     
+}
+
+int
 ib_poll_cq()
 {
         int poll_rc;
@@ -331,7 +373,54 @@ ib_poll_cq()
                 return -EINVAL;
         }
 
-        printf("Recieved data : %s\n", mem_buf);
+        printf("CQ is polled without errors\n");
 
         return 0;
+}
+
+int
+ib_post_rdma_read()
+{
+        int rc;
+        struct ibv_send_wr wr = {0};
+        struct ibv_send_wr *bad_wr = calloc(1, sizeof(struct ibv_send_wr));
+        struct ibv_sge *sge = calloc(1, sizeof(struct ibv_sge));
+
+        sge->addr = (uintptr_t)mem_buf;
+        sge->length = BUF_SIZE;
+        sge->lkey = mr->lkey;
+
+        wr.next = NULL;
+        wr.wr_id = 0;
+        wr.sg_list = sge;
+        wr.num_sge = 1;
+        wr.opcode = IBV_WR_RDMA_READ;
+        wr.send_flags = IBV_SEND_SIGNALED;
+        wr.wr.rdma.rkey = rkey;
+        wr.wr.rdma.remote_addr = raddr;
+
+         printf("RDMA READ local address %p, remote address %p\n", mem_buf, raddr);
+
+        rc = ibv_post_send(qp, &wr, &bad_wr);
+        if (rc) {
+                printf("Failed to post RDMA READ Request");
+                return rc;
+        }
+
+        printf ("RDMA read Request posted\n");
+
+        return 0;     
+}
+
+void
+ib_fill_buffer(char *msg)
+{
+        memcpy(mem_buf, msg, strlen(msg));
+}
+
+void
+ib_print_buffer_and_flush()
+{
+        printf("Buffer data is %s\n", mem_buf);
+        memset(mem_buf, 0, BUF_SIZE);
 }

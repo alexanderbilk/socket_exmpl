@@ -204,14 +204,20 @@ connection_done:
 
         printf("Data exchange completed\n");
 
-        rc = ib_post_recieve();
-        if (rc)
-                return rc;
+        // rc = ib_post_recieve();
+        // if (rc)
+        //         return rc;
 
-        rc = ib_poll_cq();
-        if (rc)
-                return rc;
+        // rc = ib_poll_cq();
+        // if (rc)
+        //         return rc;
         
+        getchar();
+
+        ib_print_buffer_and_flush();
+
+        ib_fill_buffer("Server message for RDMA read\n");
+
         getchar();
 
         return 0;
