@@ -30,6 +30,7 @@ setup_socket(struct addrinfo *hints, char *port, int *socketfd)
         rc = getaddrinfo("localhost", port, hints, &res);
         if (rc != 0) {
                 fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rc));
+                freeaddrinfo(res);
                 return 2;
         }
 
@@ -39,6 +40,7 @@ setup_socket(struct addrinfo *hints, char *port, int *socketfd)
         *socketfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
         if (*socketfd == -1) {
                 fprintf(stderr, "socket: failed to create socket\n");
+                freeaddrinfo(res);
                 return errno;
         }
 
@@ -46,16 +48,19 @@ setup_socket(struct addrinfo *hints, char *port, int *socketfd)
         rc = bind(*socketfd, res->ai_addr, res->ai_addrlen);
         if (rc == -1) {
                 fprintf(stderr, "bind: failed to bind port %s\n", port);
+                freeaddrinfo(res);
                 return errno;
         }
 
         rc = listen(*socketfd, BACKLOG);
         if (rc == -1) {
                 fprintf(stderr, "listen: failed to start listening on port %s\n", port);
+                freeaddrinfo(res);
                 return errno;
         }
 
         printf("Listening on port %s\n", port);
+        freeaddrinfo(res);
 
         return 0;
 }
@@ -219,6 +224,8 @@ connection_done:
         ib_fill_buffer("Server message for RDMA read\n");
 
         getchar();
+
+        ib_destroy();
 
         return 0;
  }

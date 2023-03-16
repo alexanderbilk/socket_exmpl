@@ -30,14 +30,20 @@ connect_to_server(struct addrinfo *hints, char *port, int *sockfd)
         *sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
         if (*sockfd == -1) {
                 fprintf(stderr, "socket: failed to create socket\n");
+                freeaddrinfo(res);
                 return errno;
         }
 
         rc = connect(*sockfd, res->ai_addr, res->ai_addrlen);
         if (rc == -1) {
                 fprintf(stderr, "connect: failed to connected\n");
+                freeaddrinfo(res);
                 return errno;
         }
+
+        freeaddrinfo(res);
+
+        return 0;
 }
 
 static int
@@ -117,6 +123,8 @@ exchange_data(int sockfd, struct qp_data_s *qp_data)
                 return rc;
 
         ib_print_buffer_and_flush();
+
+        ib_destroy();
 
         return 0;
  }

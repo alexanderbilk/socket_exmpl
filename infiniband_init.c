@@ -16,6 +16,7 @@ static struct ibv_cq *cq;
 static struct ibv_qp *qp;
 static struct ibv_pd *pd;
 static struct ibv_mr *mr;
+static struct ibv_comp_channel *ibv_comp_chanel;
 
 static int
 extract_dev_info(struct ibv_device *dev)
@@ -61,7 +62,6 @@ query_dev(struct ibv_device *dev, struct ibv_context **dev_ctx, struct ibv_port_
 static int
 create_cq(struct ibv_context *dev_ctx, struct ibv_cq **cq)
 {
-        struct ibv_comp_channel *ibv_comp_chanel;
         void *cq_ctx = NULL;
 
         ibv_comp_chanel = ibv_create_comp_channel(dev_ctx);
@@ -262,7 +262,7 @@ ib_post_recieve()
 {
         int rc;
         struct ibv_recv_wr wr = {0};
-        struct ibv_recv_wr *bad_wr;// = calloc(1, sizeof(struct ibv_recv_wr));
+        struct ibv_recv_wr *bad_wr;
         struct ibv_sge *sge = calloc(1, sizeof(struct ibv_sge));
 
         sge->addr = (uintptr_t)mem_buf;
@@ -282,6 +282,8 @@ ib_post_recieve()
 
         printf ("Recive Request posted\n");
 
+        free(sge);
+
         return 0;
 }
 
@@ -290,7 +292,7 @@ ib_post_send(char *msg)
 {
         int rc;
         struct ibv_send_wr wr = {0};
-        struct ibv_send_wr *bad_wr = calloc(1, sizeof(struct ibv_send_wr));
+        struct ibv_send_wr *bad_wr;
         struct ibv_sge *sge = calloc(1, sizeof(struct ibv_sge));
 
         sge->addr = (uintptr_t)mem_buf;
@@ -313,6 +315,8 @@ ib_post_send(char *msg)
 
         printf ("Send Request posted\n");
 
+        free(sge);
+
         return 0;
 }
 
@@ -321,7 +325,7 @@ ib_post_rdma_write(char *msg)
 {
         int rc;
         struct ibv_send_wr wr = {0};
-        struct ibv_send_wr *bad_wr = calloc(1, sizeof(struct ibv_send_wr));
+        struct ibv_send_wr *bad_wr;
         struct ibv_sge *sge = calloc(1, sizeof(struct ibv_sge));
 
         sge->addr = (uintptr_t)mem_buf;
@@ -347,6 +351,8 @@ ib_post_rdma_write(char *msg)
         }
 
         printf ("RDMA WRITE request posted\n");
+
+        free(sge);
 
         return 0;     
 }
@@ -383,7 +389,7 @@ ib_post_rdma_read()
 {
         int rc;
         struct ibv_send_wr wr = {0};
-        struct ibv_send_wr *bad_wr = calloc(1, sizeof(struct ibv_send_wr));
+        struct ibv_send_wr *bad_wr;
         struct ibv_sge *sge = calloc(1, sizeof(struct ibv_sge));
 
         sge->addr = (uintptr_t)mem_buf;
@@ -399,7 +405,7 @@ ib_post_rdma_read()
         wr.wr.rdma.rkey = rkey;
         wr.wr.rdma.remote_addr = raddr;
 
-         printf("RDMA READ local address %p, remote address %p\n", mem_buf, raddr);
+        printf("RDMA READ local address %p, remote address %p\n", mem_buf, raddr);
 
         rc = ibv_post_send(qp, &wr, &bad_wr);
         if (rc) {
@@ -408,6 +414,8 @@ ib_post_rdma_read()
         }
 
         printf ("RDMA read Request posted\n");
+
+        free(sge);
 
         return 0;     
 }
@@ -423,4 +431,14 @@ ib_print_buffer_and_flush()
 {
         printf("Buffer data is %s\n", mem_buf);
         memset(mem_buf, 0, BUF_SIZE);
+}
+
+void
+ib_destroy()
+{
+        ibv_dealloc_pd(pd);
+        ibv_destroy_cq(cq);
+        ibv_dereg_mr(mr);
+        ibv_destroy_qp(qp);
+        ibv_destroy_comp_channel(ibv_comp_chanel);
 }

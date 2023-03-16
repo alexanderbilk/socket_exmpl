@@ -31,4 +31,6 @@ void ib_fill_buffer(char *msg);
 
 void ib_print_buffer_and_flush();
 
+void ib_destroy();
+
 #endif /* _INFINIBAND_INIT_H */
