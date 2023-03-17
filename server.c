@@ -122,7 +122,7 @@ exchange_data(int fd, fd_set *master)
         printf("Client QP num is %d\n", result->qp_num);
         printf("Client QP GUID is %llu\n", result->guid);
 
-        rc = ib_setup_qp(result);
+        rc = ib_setup_uc_qp(result);
         if (rc)
                 return rc;
         
@@ -208,20 +208,10 @@ connection_done:
                 return rc;
 
         printf("Data exchange completed\n");
-
-        // rc = ib_post_recieve();
-        // if (rc)
-        //         return rc;
-
-        // rc = ib_poll_cq();
-        // if (rc)
-        //         return rc;
         
         getchar();
 
         ib_print_buffer_and_flush();
-
-        ib_fill_buffer("Server message for RDMA read\n");
 
         getchar();
 

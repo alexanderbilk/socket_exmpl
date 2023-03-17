@@ -15,7 +15,11 @@ struct qp_data_s {
 
 int ib_qp_init(uint8_t dev_idx, struct qp_data_s *res);
 
-int ib_setup_qp(struct qp_data_s *remote_qp);
+int ib_setup_uc_qp(struct qp_data_s *remote_qp);
+
+int ib_setup_ud_qp(struct qp_data_s *remote_qp);
+
+int ib_setup_rc_qp(struct qp_data_s *remote_qp);
 
 int ib_post_recieve();
 

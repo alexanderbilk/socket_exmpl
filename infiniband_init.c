@@ -99,7 +99,7 @@ create_qp(struct ibv_pd *pd, struct ibv_cq *cq, struct ibv_qp **qp)
         qp_init_attr.recv_cq = cq;
         qp_init_attr.send_cq = cq;
         qp_init_attr.sq_sig_all = 1;
-        qp_init_attr.qp_type = IBV_QPT_RC;
+        qp_init_attr.qp_type = IBV_QPT_UC;
         qp_init_attr.cap.max_recv_wr = 8;
         qp_init_attr.cap.max_send_wr = 8;
         qp_init_attr.cap.max_send_sge = 1;
@@ -211,7 +211,7 @@ ib_qp_init(uint8_t dev_idx, struct qp_data_s *res)
 }
 
 int
-ib_setup_qp(struct qp_data_s *remote_qp)
+ib_setup_uc_qp(struct qp_data_s *remote_qp)
 {
         int rc;
         int attr_flags = 0;
@@ -229,14 +229,62 @@ ib_setup_qp(struct qp_data_s *remote_qp)
         attr.path_mtu = IBV_MTU_1024;
         attr.dest_qp_num = remote_qp->qp_num;
         attr.rq_psn = 0;
-        attr.max_dest_rd_atomic = 1;
+
+        attr_flags = IBV_QP_STATE | IBV_QP_AV | IBV_QP_DEST_QPN | IBV_QP_PATH_MTU | IBV_QP_RQ_PSN;
+
+        rc = ibv_modify_qp(qp, &attr, attr_flags);
+        if (rc) {
+                printf("Failed to reset qp state to RTR\n");
+                return rc;
+        }
+
+        memset(&attr, 0, sizeof(attr));
+        attr.qp_state = IBV_QPS_RTS;
+        attr.sq_psn = 0;
+
+        attr_flags = IBV_QP_STATE | IBV_QP_SQ_PSN;
+        rc = ibv_modify_qp(qp, &attr, attr_flags);
+        if (rc) {
+                printf("Failed to reset qp state to RTS\n");
+                return rc;
+        }
+
+        return 0;
+}
+
+int
+ib_setup_ud_qp(struct qp_data_s *remote_qp)
+{
+        return -1;
+}
+
+int
+ib_setup_rc_qp(struct qp_data_s *remote_qp)
+{
+        int rc;
+        int attr_flags = 0;
+        struct ibv_qp_attr attr = {0};
+
+        rkey = remote_qp->rkey;
+        raddr = remote_qp->raddr;
+
+        attr.ah_attr.is_global = 1;
+        attr.ah_attr.grh.dgid = remote_qp->gid;
+        attr.ah_attr.sl = 0;
+        attr.ah_attr.port_num = PORT_ID;
+
+        attr.qp_state = IBV_QPS_RTR;
+        attr.path_mtu = IBV_MTU_1024;
+        attr.dest_qp_num = remote_qp->qp_num;
+        attr.rq_psn = 0;
+        attr.max_dest_rd_atomic = 0;
         attr.min_rnr_timer = 0x12;
 
         attr_flags = IBV_QP_STATE | IBV_QP_AV | IBV_QP_DEST_QPN | IBV_QP_PATH_MTU | IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER;
 
         rc = ibv_modify_qp(qp, &attr, attr_flags);
         if (rc) {
-                printf("Failed to reset qp state to RTR");
+                printf("Failed to reset qp state to RTR\n");
                 return rc;
         }
 
@@ -250,7 +298,7 @@ ib_setup_qp(struct qp_data_s *remote_qp)
         attr_flags = IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT | IBV_QP_RNR_RETRY | IBV_QP_SQ_PSN | IBV_QP_MAX_QP_RD_ATOMIC;
         rc = ibv_modify_qp(qp, &attr, attr_flags);
         if (rc) {
-                printf("Failed to reset qp state to RTS");
+                printf("Failed to reset qp state to RTS\n");
                 return rc;
         }
 
