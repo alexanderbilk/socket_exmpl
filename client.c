@@ -71,7 +71,7 @@ exchange_data(int sockfd, struct qp_data_s *qp_data)
         printf("Server QP num is %d\n", result->qp_num);
         printf("Server QP GUID is %llu\n", result->guid);
 
-        ib_setup_uc_qp(result);
+        ib_setup_ud_qp(result);
 
         return 0;
 }
@@ -104,7 +104,11 @@ exchange_data(int sockfd, struct qp_data_s *qp_data)
 
         exchange_data(sockfd, &qp_data);
 
-        rc = ib_post_rdma_write("Hello from client side\n");
+        rc = ib_post_send("Hello from client side\n");
+        if (rc)
+                return rc;
+        
+        rc = ib_poll_cq();
         if (rc)
                 return rc;
 

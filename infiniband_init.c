@@ -7,7 +7,10 @@
 
 #define BUF_SIZE (512)
 #define PORT_ID (1)
-#define SUBNET_ID (5);
+#define SUBNET_ID (5)
+#define DEF_QKEY (0x12345)
+#define GRH_HDR_SIZE (40)
+
 
 static char *mem_buf;
 static uint32_t rkey;
@@ -17,6 +20,8 @@ static struct ibv_qp *qp;
 static struct ibv_pd *pd;
 static struct ibv_mr *mr;
 static struct ibv_comp_channel *ibv_comp_chanel;
+struct ibv_ah *ah;
+static struct qp_data_s remote_qp_data;
 
 static int
 extract_dev_info(struct ibv_device *dev)
@@ -99,7 +104,7 @@ create_qp(struct ibv_pd *pd, struct ibv_cq *cq, struct ibv_qp **qp)
         qp_init_attr.recv_cq = cq;
         qp_init_attr.send_cq = cq;
         qp_init_attr.sq_sig_all = 1;
-        qp_init_attr.qp_type = IBV_QPT_UC;
+        qp_init_attr.qp_type = IBV_QPT_UD;
         qp_init_attr.cap.max_recv_wr = 8;
         qp_init_attr.cap.max_send_wr = 8;
         qp_init_attr.cap.max_send_sge = 1;
@@ -169,6 +174,9 @@ ib_qp_init(uint8_t dev_idx, struct qp_data_s *res)
         if (rc)
                 return rc;
 
+        printf("GID of the device: interface id %llu\n", gid.global.interface_id);
+        printf("GID of the device: subnet prefix id %llu\n", gid.global.subnet_prefix);
+
         rc = create_cq(dev_ctx, &cq);
         if (rc)
                 return rc;
@@ -188,12 +196,12 @@ ib_qp_init(uint8_t dev_idx, struct qp_data_s *res)
         attr.qp_state = IBV_QPS_INIT;
         attr.port_num = PORT_ID;
         attr.pkey_index = 0;
-        attr.qp_access_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
+        attr.qkey = DEF_QKEY;
 
-        attr_flags = IBV_QP_STATE | IBV_QP_PORT | IBV_QP_PKEY_INDEX | IBV_QP_ACCESS_FLAGS;
+        attr_flags = IBV_QP_STATE | IBV_QP_PORT | IBV_QP_PKEY_INDEX | IBV_QP_QKEY;
         rc = ibv_modify_qp(qp, &attr, attr_flags);
         if (rc) {
-                printf("Failed to restey qp state to INIT");
+                printf("Failed to reset qp state to INIT\n");
                 return rc;
         }
 
@@ -255,7 +263,52 @@ ib_setup_uc_qp(struct qp_data_s *remote_qp)
 int
 ib_setup_ud_qp(struct qp_data_s *remote_qp)
 {
-        return -1;
+        int rc;
+        int attr_flags = 0;
+        struct ibv_qp_attr attr = {0};
+        struct ibv_ah_attr ah_attr = {0};
+
+        rkey = remote_qp->rkey;
+        raddr = remote_qp->raddr;
+        remote_qp_data = *remote_qp;
+
+        attr.qp_state = IBV_QPS_RTR;
+
+        attr_flags = IBV_QP_STATE;
+
+        rc = ibv_modify_qp(qp, &attr, attr_flags);
+        if (rc) {
+                printf("Failed to reset qp state to RTR\n");
+                return rc;
+        }
+
+        memset(&attr, 0, sizeof(attr));
+        attr.qp_state = IBV_QPS_RTS;
+        attr.sq_psn = 0;
+
+        attr_flags = IBV_QP_STATE | IBV_QP_SQ_PSN;
+        rc = ibv_modify_qp(qp, &attr, attr_flags);
+        if (rc) {
+                printf("Failed to reset qp state to RTS\n");
+                return rc;
+        }
+
+        ah_attr.is_global = 1;
+        ah_attr.grh.dgid = remote_qp->gid;
+        ah_attr.sl = 0;
+        ah_attr.port_num = PORT_ID;
+        //ah_attr.dlid = 0xc001;
+
+        printf("GID of the remote device: interface id %llu\n", remote_qp->gid.global.interface_id);
+        printf("GID of the remote device: subnet prefix id %llu\n", remote_qp->gid.global.subnet_prefix);
+
+        ah = ibv_create_ah(pd, &ah_attr);
+        if (!ah) {
+                printf("Failed to create AH\n");
+                return -1;
+        }
+
+        return 0;
 }
 
 int
@@ -341,10 +394,10 @@ ib_post_send(char *msg)
         int rc;
         struct ibv_send_wr wr = {0};
         struct ibv_send_wr *bad_wr;
-        struct ibv_sge *sge = calloc(1, sizeof(struct ibv_sge));
+        struct ibv_sge *sge = calloc(1, sizeof(struct ibv_sge));      
 
         sge->addr = (uintptr_t)mem_buf;
-        sge->length = BUF_SIZE;
+        sge->length = BUF_SIZE - GRH_HDR_SIZE;
         sge->lkey = mr->lkey;
 
         wr.next = NULL;
@@ -353,6 +406,10 @@ ib_post_send(char *msg)
         wr.num_sge = 1;
         wr.opcode = IBV_WR_SEND;
         wr.send_flags = IBV_SEND_SIGNALED;
+
+        wr.wr.ud.ah = ah;
+        wr.wr.ud.remote_qkey = DEF_QKEY;
+        wr.wr.ud.remote_qpn = remote_qp_data.qp_num;
 
         memcpy(mem_buf, msg, strlen(msg));
         rc = ibv_post_send(qp, &wr, &bad_wr);
@@ -477,7 +534,7 @@ ib_fill_buffer(char *msg)
 void
 ib_print_buffer_and_flush()
 {
-        printf("Buffer data is %s\n", mem_buf);
+        printf("Buffer data is %s\n", mem_buf + GRH_HDR_SIZE);
         memset(mem_buf, 0, BUF_SIZE);
 }
 
@@ -489,4 +546,5 @@ ib_destroy()
         ibv_dereg_mr(mr);
         ibv_destroy_qp(qp);
         ibv_destroy_comp_channel(ibv_comp_chanel);
+        ibv_destroy_ah(ah);
 }

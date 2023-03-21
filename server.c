@@ -122,7 +122,8 @@ exchange_data(int fd, fd_set *master)
         printf("Client QP num is %d\n", result->qp_num);
         printf("Client QP GUID is %llu\n", result->guid);
 
-        rc = ib_setup_uc_qp(result);
+        rc = ib_setup_ud_qp(result);
+
         if (rc)
                 return rc;
         
@@ -209,11 +210,16 @@ connection_done:
 
         printf("Data exchange completed\n");
         
-        getchar();
+        rc = ib_post_recieve();
+        if (rc)
+                return rc;
+        
+        rc = ib_poll_cq();
+        if (rc)
+                return rc;
 
         ib_print_buffer_and_flush();
 
-        getchar();
 
         ib_destroy();
 
